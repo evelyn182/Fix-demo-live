@@ -1,23 +1,7 @@
 export default async (req) => {
-  const u = new URL(req.url);
-  const interval = u.searchParams.get('interval') || '15min';
-  const symbol = u.searchParams.get('symbol') || 'EUR/USD';
-  const start = u.searchParams.get('start');
-  const end = u.searchParams.get('end');
-  const key = process.env.TWELVE_DATA_API_KEY;
-  if (!key) return Response.json({ ok:false, error:'Missing TWELVE_DATA_API_KEY' }, { status:500 });
-  try {
-    const url = new URL('https://api.twelvedata.com/time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', interval);
-    url.searchParams.set('outputsize', start || end ? '5000' : '500');
-    url.searchParams.set('apikey', key);
-    if (start) url.searchParams.set('start_date', start);
-    if (end) url.searchParams.set('end_date', end);
-    const r = await fetch(url, { cache:'no-store' });
-    const j = await r.json();
-    if (!r.ok || j.status === 'error' || !Array.isArray(j.values)) return Response.json({ ok:false, error:j.message || 'Twelve Data returned no candles', provider:j }, { status:r.status >= 400 ? r.status : 502 });
-    const values = j.values.map(v => ({ time:Math.floor(new Date(v.datetime.replace(' ','T')+'Z').getTime()/1000), open:Number(v.open), high:Number(v.high), low:Number(v.low), close:Number(v.close) })).filter(x=>[x.open,x.high,x.low,x.close].every(Number.isFinite)).sort((a,b)=>a.time-b.time);
-    return Response.json({ ok:true, values, symbol, source:'Twelve Data' });
-  } catch(e) { return Response.json({ ok:false, error:e?.message || 'Twelve Data market request failed' }, { status:502 }); }
+  const u=new URL(req.url), interval=u.searchParams.get('interval')||'15min', symbol=u.searchParams.get('symbol')||'EUR/USD';
+  const key=process.env.TWELVE_DATA_API_KEY; if(!key)return Response.json({ok:false,error:'Missing TWELVE_DATA_API_KEY'},{status:500});
+  const q=new URLSearchParams({symbol,interval,apikey:key,outputsize:String(Math.min(Number(u.searchParams.get('outputsize')||5000),5000)),timezone:'UTC'});
+  const start=u.searchParams.get('start'),end=u.searchParams.get('end'); if(start)q.set('start_date',start+' 00:00:00'); if(end)q.set('end_date',end+' 23:59:59');
+  try{const r=await fetch('https://api.twelvedata.com/time_series?'+q),j=await r.json(); if(!r.ok||j.status==='error'||j.code)return Response.json({ok:false,error:j.message||'Provider error'},{status:400}); const values=(j.values||[]).reverse().map(x=>({time:Math.floor(new Date(x.datetime+'Z').getTime()/1000),open:+x.open,high:+x.high,low:+x.low,close:+x.close})).filter(x=>Object.values(x).every(Number.isFinite)); return Response.json({ok:true,symbol,interval,values,source:'Twelve Data'});}catch(e){return Response.json({ok:false,error:e.message},{status:502})}
 };
